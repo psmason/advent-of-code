@@ -6,7 +6,7 @@ import math
 import re
 from collections import defaultdict
 
-_ROBOT_LIMIT = 10
+_ROBOT_LIMIT = 20
 _ORE      = 0
 _CLAY     = 1
 _OBSIDIAN = 2
@@ -44,102 +44,23 @@ def parse_blueprint(line):
 def pretty_print_build_options(search_table, robots):
     print([t for t in search_table[robots].items() if len(t[1])>0])
 
-def build_geodes_table(robot_costs, time_limit):
-    def compute_new_resource_tuple(starting_resources, robots, time_delta, robot_cost):
-        result = list(starting_resources)
-        for r in [_ORE, _CLAY, _OBSIDIAN, _GEODE]:
-            result[r] += robots[r]*time_delta
-        # Deducting however much the robot cost.
-        for r in [_ORE, _CLAY, _OBSIDIAN]:
-            result[r] -= robot_cost[r]
-        return tuple(result)
+def find_max_geodes_dfs(robot_costs, time_limit):
+    """
+    With DFS, the idea is that we can quickly probe for potential solutions, 
+    and then efficiently prune other branches based on the best solution found 
+    so far.
+    """
 
-    def compute_time_for_resources(starting_resources, available_robots, robot_cost):
-        max_time_needed = -1
-        for i in range(len(robot_cost)):
-            if robot_cost[i] == 0:
-                continue
-            max_time_needed = max(max_time_needed, math.ceil(max(0, robot_cost[i]-starting_resources[i]) / available_robots[i]))
-        return max_time_needed
-
-    def is_strictly_fewer_resources(lhs, rhs):
-        for i in range(len(lhs)):
-            if lhs[i] > rhs[i]:
-                return False
-        return True
-
-    def maybe_skip_update(new_time, existing_resource_paths, updated_resources):
-        for t in range(1, new_time):
-            if updated_resources in search_table[target_tuple][t]:
-                return True
-            
-        for existing_resource_path in existing_resource_paths:
-            if is_strictly_fewer_resources(updated_resources, existing_resource_path):
-                return True
-
-    def update_search_table(already_built_robots, target_tuple, robot_to_build):
-        path_options = search_table[already_built_robots]
-
-        filtering_ts = None
-        filtering_resources = None
-        
-        for timestamp_option in sorted(path_options.keys()):
-            time_needed, resource_options = timestamp_option, path_options[timestamp_option]                
-            for resources in resource_options:                
-                # Time to collect resources
-                time_delta = compute_time_for_resources(resources, already_built_robots, robot_costs[robot_to_build])
-                # Time to build the robot
-                time_delta += 1
-
-                new_time = time_needed + time_delta
-                if new_time <= time_limit:
-                    updated_resources = compute_new_resource_tuple(resources, already_built_robots, time_delta, robot_costs[robot_to_build])
-                    existing_resource_paths = search_table[target_tuple][new_time]
-                    if len(existing_resource_paths) == 0:
-                        search_table[target_tuple][new_time].add(updated_resources)
-                        #print('added')
-                        continue
-
-                    if updated_resources in existing_resource_paths:
-                        continue
-
-                    search_table[target_tuple][new_time].add(updated_resources)
-
-                    """
-                    if maybe_skip_update(new_time, existing_resource_paths, updated_resources):
-                        #print('skipped')
-                        continue
-                    if filtering_ts is None:
-                        filtering_ts = new_time
-                        filtering_resources = updated_resources
-                    else:
-                        if new_time > filtering_ts:
-                            filtering_resources_option = compute_new_resource_tuple(filtering_resources, target_tuple, max(0, new_time-filtering_ts), (0,0,0))                        
-                            if is_strictly_fewer_resources(updated_resources, filtering_resources_option):
-                                #print('skipped')
-                                continue
-                    
-                    #print('added')
-                    search_table[target_tuple][new_time].add(updated_resources)
-                    removals = []
-                    for existing_resource_path in existing_resource_paths:
-                        if not existing_resource_path == updated_resources:
-                            if is_strictly_fewer_resources(existing_resource_path, updated_resources):
-                                removals.append(existing_resource_path)
-                    for removal in removals:
-                        #print('removing', removal, updated_resources, is_strictly_fewer_resources(removal, updated_resources))
-                        #print('removing')
-                        search_table[target_tuple][new_time].remove(removal)   
-                    """     
-
-    def make_build_options(target_tuple):
+    def make_build_options(current_robots, max_robots_tuple):
         result = []
-        for i in range(len(target_tuple)):
-            option = list(target_tuple)
-            option[i] -= 1
 
-            if i == 0 and option[i] == 0:
-                # there's always at least one ore robot
+        # Greedily try to build in this order: geode, obsidian, clay, ore.
+        # This speeds up finding potential solutions yielding geode.
+        for i in range(len(current_robots)):
+            option = list(current_robots)
+            
+            if i in [0,1,2] and option[i] > max_robots_tuple[i]:
+                # Skip builds we know don't help.
                 continue
 
             if i == 2 and option[1] == 0:
@@ -149,55 +70,82 @@ def build_geodes_table(robot_costs, time_limit):
             if i == 3 and option[2] == 0:
                 # can't build geode without obsidian robots
                 continue
-
-            if option[i] >= 0:
-                result.append((tuple(option), i))
-        return result
-    
-    # Table filling exercise.
-
-    # Initialization
-    search_table = defaultdict(dict)
-    for ore_robots in range(_ROBOT_LIMIT):
-        for clay_robots in range(_ROBOT_LIMIT):
-            for obsidian_robots in range(_ROBOT_LIMIT):
-                for geode_robots in range(_ROBOT_LIMIT):
-                    for timestamp in range(1, time_limit+1):                        
-                        # Each element of a set of resource tuples
-                        search_table[(ore_robots, clay_robots, obsidian_robots, geode_robots)][timestamp] = set()
-
-    search_table[(1,0,0,0)][1].add((0,0,0,0))
-    for target_geode_count in range(_ROBOT_LIMIT):
-        for target_obsidian_count in range(_ROBOT_LIMIT):
-            for target_clay_count in range(_ROBOT_LIMIT):
-                for target_ore_count in range(1, _ROBOT_LIMIT):
-                    target_tuple = (target_ore_count, target_clay_count, target_obsidian_count, target_geode_count)
-                    if target_tuple == (1, 0, 0, 0):
-                        continue
             
-                    already_built_options = make_build_options(target_tuple)
-                    for already_built_robots, robot_to_build in already_built_options:
-                        update_search_table(already_built_robots, target_tuple, robot_to_build)
-    return search_table
+            option[i] += 1
+            result.append((tuple(option), i))
+        return result
 
-def find_max_geodes(search_table, time_limit):
+    def compute_time_to_build(starting_resources, available_robots, robot_cost):
+        max_time_needed_for_resources = -1
+        for i in range(len(robot_cost)):
+            if robot_cost[i] == 0:
+                continue
+            time_needed_for_resource = math.ceil(max(0, robot_cost[i]-starting_resources[i]) / available_robots[i])
+            max_time_needed_for_resources = max(max_time_needed_for_resources, time_needed_for_resource)
+        # Plus time to build
+        return max_time_needed_for_resources + 1
+
+    def compute_new_resource_tuple(starting_resources, available_robots, time_delta, robot_cost):
+        result = list(starting_resources)
+        for r in [_ORE, _CLAY, _OBSIDIAN, _GEODE]:
+            result[r] += available_robots[r]*time_delta
+        # Deducting however much the robot cost.
+        for r in [_ORE, _CLAY, _OBSIDIAN]:
+            result[r] -= robot_cost[r]
+        return tuple(result)
+
+    def should_prune_branch(best_solution_so_far, current_robots, current_resources, current_time, time_limit):
+        time_remaining = time_limit - current_time
+
+        # Assume that for each remaining minute, we build a geode robot, even if that isn't possible.
+        potential_geodes = current_resources[_GEODE]
+        geode_robots = current_robots[_GEODE]
+        for i in range(time_remaining+1):
+            potential_geodes += geode_robots
+            geode_robots += 1
+        if potential_geodes < best_solution_so_far:
+            return True
+        
+        return False
+        
+    # So that we don't build unnecessary robots
+    max_robots_tuple = [-1, -1, -1]
+    for costs in list(robot_costs):
+        max_robots_tuple[0] = max(max_robots_tuple[0], costs[0])
+        max_robots_tuple[1] = max(max_robots_tuple[1], costs[1])
+        max_robots_tuple[2] = max(max_robots_tuple[2], costs[2])
+    max_robots_tuple = tuple(max_robots_tuple)
+
     max_geodes = 0
-    for ore_robots in range(_ROBOT_LIMIT):
-        for clay_robots in range(_ROBOT_LIMIT):
-            for obsidian_robots in range(_ROBOT_LIMIT):
-                for geode_robots in range(_ROBOT_LIMIT):
-                    if geode_robots == 0:
-                        continue
-                    target_tuple = (ore_robots, clay_robots, obsidian_robots, geode_robots)
-                    if target_tuple in search_table:
-                        options = search_table[target_tuple]
-                        for ts in options.keys():                            
-                            for resources in options[ts]:
-                                time_remaining = time_limit - ts + 1
-                                minable_geodes = resources[_GEODE] + time_remaining*geode_robots
-                                max_geodes = max(max_geodes, minable_geodes)
-    return max_geodes
+    current_time = 1
+    visit_queue = []
+    # Starting with just one ore robot.
+    visit_queue.append(((1, 0, 0, 0), (0,0,0,0), current_time))
 
+    while len(visit_queue) > 0:
+        current_robots, current_resources, current_time = visit_queue.pop()
+
+        if should_prune_branch(max_geodes, current_robots, current_resources, current_time, time_limit):
+            continue
+        
+        build_options = make_build_options(current_robots, max_robots_tuple)
+        for option in build_options:
+            target_robots, robot_to_build = option
+            robot_to_build_cost = robot_costs[robot_to_build]
+            
+            time_needed = compute_time_to_build(current_resources, current_robots, robot_to_build_cost)
+            if current_time + time_needed > time_limit:
+                # This branch has exhausted available time. Time to compute how many geodes
+                # we can get. 
+                branch_time_remaining = time_limit - current_time + 1
+                minable_geodes = current_resources[_GEODE] + branch_time_remaining*current_robots[_GEODE]
+                max_geodes = max(max_geodes, minable_geodes)
+            else:
+                new_resources = compute_new_resource_tuple(current_resources, current_robots, time_needed, robot_to_build_cost)
+                visit_queue.append((target_robots, new_resources, current_time+time_needed))                        
+        
+    return max_geodes
+        
 # Part 1
 lines = get_input()
 score = 0
@@ -205,44 +153,22 @@ time_limit = 24
 for i in range(len(lines)):
     line = lines[i]
     robot_costs = parse_blueprint(line)
-    print(robot_costs)
-    search_table = build_geodes_table((robot_costs["ORE"],robot_costs["CLAY"],robot_costs["OBSIDIAN"],robot_costs["GEODE"]), time_limit)
-    #pretty_print_build_options(search_table, (1,3,2,1))
-    max_geodes = find_max_geodes(search_table, time_limit)
-    
-    print(max_geodes)
-    print('')
+    max_geodes = find_max_geodes_dfs((robot_costs["ORE"],robot_costs["CLAY"],robot_costs["OBSIDIAN"],robot_costs["GEODE"]), time_limit)
     score += (i+1)*max_geodes
-print('score', score)
+print('part 1 score', score)
 
 # Part 2
 lines = get_input()
 scores = []
 time_limit = 32
-for i in range(0):
+# Only the first three blueprints
+for i in range(min(3, len(lines))):
     line = lines[i]
     robot_costs = parse_blueprint(line)
-    print('building search table')
-    search_table = build_geodes_table((robot_costs["ORE"],robot_costs["CLAY"],robot_costs["OBSIDIAN"],robot_costs["GEODE"]), time_limit)
-    #print("10", (2,4,0,0))
-    #pretty_print_build_options(search_table, (2,4,0,0))
-    #print("14", (2,7,1,0))
-    #pretty_print_build_options(search_table, (2,7,1,0))
-    #print("16", (2,7,2,0))
-    #pretty_print_build_options(search_table, (2,7,2,0))
-    #print("20", (2,7,4,0))
-    #pretty_print_build_options(search_table, (2,7,4,0))
-    #print("24", (2,7,5,3))
-    #pretty_print_build_options(search_table, (2,7,5,3))
-    
-    print('looking through search table')
-    max_geodes = find_max_geodes(search_table, time_limit)
+    max_geodes = find_max_geodes_dfs((robot_costs["ORE"],robot_costs["CLAY"],robot_costs["OBSIDIAN"],robot_costs["GEODE"]), time_limit)
     scores.append(max_geodes)
-    print(time_limit, max_geodes)
-    print('')
-    break
+    
 product = 1
 for score in scores:
     product *= score
-print('scores', scores, product)
-
+print('part 2 scores', scores, product)

@@ -28,19 +28,6 @@ def parse_moves(line):
 
     return result
 
-"""
-def build_grid(lines):
-    # Add an extra row and column so that boundaries become
-    # wraparound cases. 
-    rows = len(lines)+1
-    cols = max([len(line) for line in lines])+1
-    grid = [[' ']*cols for row in range(rows)]
-    for row in range(len(lines)):
-        for col in range(len(lines[row])):
-            grid[row][col] = lines[row][col]
-    return grid
-"""
-
 def build_grid(lines):
     # Add an extra row and column so that boundaries become
     # wraparound cases. 
@@ -79,19 +66,19 @@ def apply_move(grid, location, orientation, moves, warp_table):
 
     def maybe_wrap_location(location, orientation):
         original_location = location
+        original_orientation = orientation
         row, col = location
 
-        #if warp_table[row][col] is not None:
-        #    print('warp table entry', location, row, col, warp_table[row][col])
-        #    return (row, col)
+        if warp_table[row][col] is not None:
+            row, col, orientation = warp_table[row][col]
         
 
         while grid[row][col] not in ['.', '#']:
             row, col = update_location((row, col), orientation)
         if grid[row][col] == '.':
-            return (row, col)
+            return (row, col), orientation
         else:
-            return update_location(original_location, (orientation+180)%360)        
+            return update_location(original_location, (original_orientation+180)%360), original_orientation
 
     row, col = location
     for i in range(moves):
@@ -100,15 +87,8 @@ def apply_move(grid, location, orientation, moves, warp_table):
         if grid[proposed_row][proposed_col] == '#':
             break
         location = proposed_location
-        location = maybe_wrap_location(location, orientation)
-    return location
-
-"""
-def find_start(grid):
-    for col in range(len(grid[0])):
-        if grid[0][col] == '.':
-            return (0, col)
-"""
+        location, orientation = maybe_wrap_location(location, orientation)
+    return location, orientation
 
 def find_start(grid):
     for col in range(len(grid[1])):
@@ -151,16 +131,16 @@ orientation = 0
 for move in moves:
     rotation, shift_amount = move
     orientation = apply_rotation(orientation, rotation)
-    location = apply_move(grid, location, orientation, shift_amount, warp_table)
+    location, orientation = apply_move(grid, location, orientation, shift_amount, warp_table)
 
-print(location, orientation)
 print(1000*(location[0])+4*(location[1])+get_orientation_score(orientation))
-#print(1000*(location[0]+1)+4*(location[1]+1)+get_orientation_score(orientation))
-#pretty_print_grid(grid, location)
+
 
 # Part 2
 def build_warp_table(cube_edge_length):
     """
+    From the example. The actual input is a different cube layout of edge size 50.
+
             1111
             1111
             1111
@@ -174,46 +154,45 @@ def build_warp_table(cube_edge_length):
             55556666
             55556666
     """
-    rows = cube_edge_length * 3
+    rows = cube_edge_length * 4
     # Padding the grid for wrap events
-    rows += 1
+    rows += 2
 
-    cols = cube_edge_length * 4
-    cols += 1
+    cols = cube_edge_length * 3
+    cols += 2
 
     warp_grid = [[None]*cols for row in range(rows)]
 
     # each element is a tuple:
-    # * warped row
-    # * warped col
-    # * warped orientation
+    # * destination row
+    # * destination col
+    # * destination orientation
 
-    warp_grid[0][9]  = (5,  4,  270)
-    warp_grid[0][10] = (5,  3,  270)
-    warp_grid[0][11] = (5,  2,  270)
-    warp_grid[0][12] = (5,  1,  270)
-
-    warp_grid[4][1]  = (1,  12, 270)
-    warp_grid[4][2]  = (1,  11, 270)
-    warp_grid[4][3]  = (1,  10, 270)
-    warp_grid[4][4]  = (1,  9,  270)
-
-    warp_grid[8][1]  = (12, 12, 90)
-    warp_grid[8][2]  = (12, 11, 90)
-    warp_grid[8][3]  = (12, 10, 90)
-    warp_grid[8][4]  = (12, 9,  90)
-
-    warp_grid[12][9]  = (7, 4, 90)
-    warp_grid[12][10] = (7, 3, 90)
-    warp_grid[12][11] = (7, 2, 90)
-    warp_grid[12][12] = (7, 1, 90)
-    
+    for i in range(cube_edge_length):
+        warp_grid[0][cube_edge_length+1+i]                      = (3*cube_edge_length+1+i, 1,                      0)
+        warp_grid[0][2*cube_edge_length+1+i]                    = (4*cube_edge_length,     1+i,                    90)
+        warp_grid[1+i][3*cube_edge_length+1]                    = (3*cube_edge_length-i,   2*cube_edge_length,     180)
+        warp_grid[cube_edge_length+1][2*cube_edge_length+1+i]   = (cube_edge_length+1+i,   2*cube_edge_length,     180)
+        warp_grid[cube_edge_length+1+i][2*cube_edge_length+1]   = (cube_edge_length,       2*cube_edge_length+1+i, 90)
+        warp_grid[2*cube_edge_length+1+i][2*cube_edge_length+1] = (cube_edge_length-i,     3*cube_edge_length,     180)
+        warp_grid[3*cube_edge_length+1][cube_edge_length+1+i]   = (3*cube_edge_length+1+i, cube_edge_length,       180)
+        warp_grid[3*cube_edge_length+1+i][cube_edge_length+1]   = (3*cube_edge_length,     cube_edge_length+1+i,   90)
+        warp_grid[4*cube_edge_length+1][1+i]                    = (1,                      2*cube_edge_length+1+i, 270)
+        warp_grid[3*cube_edge_length+1+i][0]                    = (1,                      cube_edge_length+1+i,   270)
+        warp_grid[2*cube_edge_length+1+i][0]                    = (cube_edge_length-i,     cube_edge_length+1,     0)
+        warp_grid[2*cube_edge_length][1+i]                      = (cube_edge_length+1+i,   cube_edge_length+1,     0)
+        warp_grid[cube_edge_length+1+i][cube_edge_length]       = (2*cube_edge_length+1,   1+i,                    270)
+        warp_grid[1+i][cube_edge_length]                        = (3*cube_edge_length-i,   1,                      0)
     return warp_grid
 
-"""
-warp_table = build_warp_table(4)
+warp_table = build_warp_table(50)
 
-location = apply_move(grid, (2,10), 90, 2, warp_table)
-print('final location', location)
-pretty_print_grid(grid, location)
-"""
+location = find_start(grid)
+orientation = 0
+for move in moves:
+    rotation, shift_amount = move
+    orientation = apply_rotation(orientation, rotation)
+    location, orientation = apply_move(grid, location, orientation, shift_amount, warp_table)
+
+print(1000*(location[0])+4*(location[1])+get_orientation_score(orientation))
+
